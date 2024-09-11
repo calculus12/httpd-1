@@ -35,6 +35,8 @@ static void free_request(struct HTTPRequset *req)
 static struct HTTPRequset* read_request(FILE* in);
 static void read_request_line(struct HTTPRequset *req, FILE *in);
 static struct HTTPHeaderField* read_header_field(FILE *in);
+static long content_length(struct HTTPRequset *req);
+static char* lookup_header_field_value(struct HTTPRequset *req, char *name);
 
 /* -- main -- */
 int main(int argc, char *argv[]) {
@@ -188,4 +190,24 @@ static struct HTTPHeaderField* read_header_field(FILE *in) {
 	strcpy(h->value, p);
 
 	return h;
+}
+
+static long content_length(struct HTTPRequest *req) {
+	char *val;
+	long len;
+	val = lookup_header_field_value(req, "Content-Length");
+	if (!val) return 0;
+	len = atol(val);
+	if (len < 0) log_exit("negative Content-Length value");
+	return len;
+}
+
+static char* lookup_header_field_value(struct HTTPRequest *req, char *name) {
+	struct HTTPHeaderField *h;
+
+	for (h = req->header; h; h = h->next) {
+		if (strcasecmp(h->name, name) == 0)
+			return h->value;
+	}
+	return NULL;
 }
