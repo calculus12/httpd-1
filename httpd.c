@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <fcntl.h>
@@ -11,6 +13,10 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <signal.h>
+#include <getopt.h>
+#include <syslog.h>
+#include <grp.h>
+#include <pwd.h>
 
 #define USAGE "Usage: %s [--port=n] [--chroot --user=u --group=g] <docroot>\n"
 
@@ -64,7 +70,7 @@ struct FileInfo {
 typedef void (*sighandler_t)(int);
 
 /* -- func def -- */
-static void log_exit(char *fmt, ...);
+static void log_exit(const char *fmt, ...);
 static void signal_exit(int sig);
 static void* xmalloc(size_t sz);
 static void install_signal_handlers(void);
@@ -149,7 +155,7 @@ int main(int argc, char *argv[]) {
 }
 
 /* -- func impl -- */
-static void log_exit(char *fmt, ...) {
+static void log_exit(const char *fmt, ...) {
 	va_list ap;
 
 	va_start(ap, fmt);
@@ -477,7 +483,7 @@ static int listen_socket(char *port) {
 	hints.ai_flags = AI_PASSIVE; /* server socket */
 	if ((err = getaddrinfo(NULL, port, &hints, &res)) != 0)
 		log_exit(gai_strerror(err));
-	for (ai = res; ai; ai=ai->next) {
+	for (ai = res; ai; ai=ai->ai_next) {
 		int sock;
 
 		sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
