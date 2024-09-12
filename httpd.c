@@ -89,6 +89,9 @@ static void not_found(struct HTTPRequest *req, FILE *out);
 static char* guess_content_type(struct FileInfo* info);
 static int listen_socket(char *port);
 static void server_main(int server_fd, char *docroot);
+static void detach_children(void);
+static void become_daemon(void);
+static void setup_environment(char *root, char *user, char *group);
 
 /* -- main -- */
 int main(int argc, char *argv[]) {
@@ -164,8 +167,22 @@ static void* xmalloc(size_t sz) {
 	return p;
 }
 
+static void become_daemon(void) {
+	int n;
+
+	if (chdir("/") < 0)
+		log_exit("chdir(2) failed: %s", strerror(errno));
+	freopen("/dev/null", "r", stdin);
+	freopen("/dev/null", "w", stdout);
+	freopen("/dev/null", "w", stderr);
+	n = fork();
+	if (n < 0) log_exit("fork(2) failed: %s", strerror(errno));
+	if (n != 0) _exit(0); /* exit parnet process */
+	if (setsid() < 0) log_exit("setsid(2) failed: %s", strerror(errno)); /* detach terminal */
+}
 static void install_signal_handlers(void) {
-	trap_signal(SIGPIPE, signal_exit);
+	trap_signal(SIGTERM, signal_exit);
+	detach_children();
 }
 
 static void trap_signal(int sig, sighandler_t handler) {
@@ -497,3 +514,51 @@ static void server_main(int server_fd, char *docroot) {
 		close(sock);
 	}
 }
+
+
+static void noop_handler(int sig) {;}
+static void detach_children(void) {
+	struct sigaction act;
+
+	act.sa_handler = noop_handler;
+	sigemptyset(&act.sa_mask);
+	act.sa_flags = SA_RESTART | SA_NOCLDWAIT;
+	if (sigaction(SIGCHLD, &act, NULL) < 0) {
+		log_exit("sigaction() failed: %s", strerror(errno));
+	}
+}
+
+static void setup_environment(char *root, char *user, char *group) {
+	struct passwd *pw;
+	struct group *gr;
+
+	if (!user || !group) {
+		fprintf(stderr, "use both of --use and --group\n");
+		exit(1);
+	}
+	gr = getgrnam(group);
+	if (!gr) {
+		fprintf(stderr, "no such group: %s\n", group);
+		exit(1);
+	}
+	if (setgid(gr->gr_gid) < 0) {
+		perror("setgid(2)");
+		exit(1);
+	}
+	if (initgroups(user, gr->gr_gid) < 0) {
+		perror("initgroups(2)");
+		exit(1);
+	}
+	pw = getpwnam(user);
+	if (!pw) {
+		fprintf(stderr, "no such user: %s\n", user);
+		exit(1);
+	}
+	chroot(root);
+	if (setuid(pw->pw_uid) < 0) {
+		perror("setuid(2)");
+		exit(1);
+	}
+}
+
+
