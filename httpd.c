@@ -36,6 +36,9 @@ static struct option longopts[] = {
 #define LINE_BUF_SIZE 4096
 #define MAX_REQUEST_BODY_LENGTH (1024 * 1024)
 
+#define DEFAULT_PORT "80"
+#define MAX_BACKLOG 5
+
 /* -- `struct`s -- */
 struct HTTPHeaderField {
 	char *name;
@@ -84,6 +87,8 @@ static void method_not_allowed(struct HTTPRequest *req, FILE *out);
 static void not_implemented(struct HTTPRequest *req, FILE *out);
 static void not_found(struct HTTPRequest *req, FILE *out);
 static char* guess_content_type(struct FileInfo* info);
+static int listen_socket(char *port);
+static void server_main(int server_fd, char *docroot);
 
 /* -- main -- */
 int main(int argc, char *argv[]) {
@@ -439,4 +444,56 @@ static void not_found(struct HTTPRequest *req, FILE *out) {
 
 static char* guess_content_type(struct FileInfo* info) {
 	return "text/plain";
+}
+
+static int listen_socket(char *port) {
+	struct addrinfo hints, *res, *ai;
+	int err;
+
+	memset(&hints, 0, sizeof(struct addrinfo));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype=  SOCK_STREAM;
+	hints.ai_flags = AI_PASSIVE; /* server socket */
+	if ((err = getaddrinfo(NULL, port, &hints, &res)) != 0)
+		log_exit(gai_strerror(err));
+	for (ai = res; ai; ai=ai->next) {
+		int sock;
+
+		sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+		if (sock < 0) continue;
+		if (bind(sock, ai->ai_addr, ai->ai_addrlen) < 0) {
+			close(sock);
+			continue;
+		}
+		if (listen(sock, MAX_BACKLOG) < 0) {
+			close(sock);
+			continue;
+		}
+		freeaddrinfo(res);
+		return sock;
+	}
+	log_exit("failed to listen socket");
+	return -1;
+}
+
+static void server_main(int server_fd, char *docroot) {
+	for (;;) {
+		struct sockaddr_storage addr;
+		socklen_t addrlen = sizeof addr;
+		int sock;
+		int pid;
+
+		sock = accept(server_fd, (struct sockaddr*)&addr, &addrlen);
+		if (sock < 0) log_exit("accept(2) failed: %s", strerror(errno));
+		pid = fork();
+		if (pid < 0) exit(3);
+		if (pid == 0) { /* child */
+			FILE *inf = fdopen(sock, "r");
+			FILE *outf = fdopen(sock, "w");
+
+			service(inf, outf, docroot);
+			exit(0);
+		}
+		close(sock);
+	}
 }
