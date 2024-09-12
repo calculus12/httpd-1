@@ -24,6 +24,11 @@ struct HTTPRequest {
 	long length;
 };
 
+struct FileInfo {
+	char *path;
+	long size;
+	int ok;
+}
 
 /* -- func def -- */
 static void log_exit(char *fmt, ...);
@@ -37,6 +42,9 @@ static void read_request_line(struct HTTPRequset *req, FILE *in);
 static struct HTTPHeaderField* read_header_field(FILE *in);
 static long content_length(struct HTTPRequset *req);
 static char* lookup_header_field_value(struct HTTPRequset *req, char *name);
+static struct FileInfo* get_fileinfo(char *docroot, char *urlpath);
+static char* build_fspath(char *docroot, char *urlpath);
+static void respond_to(struct HTTPRequset *req, FILE *out, char *docroot);
 
 /* -- main -- */
 int main(int argc, char *argv[]) {
@@ -211,3 +219,27 @@ static char* lookup_header_field_value(struct HTTPRequest *req, char *name) {
 	}
 	return NULL;
 }
+
+static struct FileInfo* get_fileinfo(char *docroot, char *urlpath) {
+	struct FileInfo *info;
+	struct stat st;
+
+	info = xmalloc(sizeof(struct FileInfo));
+	info->path = build_fspath(docroot, urlpath);
+	info->ok = 0;
+	if (lstat(info->path, &st) < 0) return info; /* must be `lstat` */
+	if (!S_ISREG(st.st_mode)) return info;
+	info->ok = 1;
+	info->size = st.st_size;
+	return info;
+}
+
+static char* build_fspath(char *docroot, char *urlpath) {
+	char *path;
+
+	path = xmalloc(strlen(docroot) + 1 + strlen(urlpath) + 1);
+	sprintf(path, "%s/%s", docroot, urlpath);
+	return path;
+}
+
+	
